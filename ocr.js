@@ -123,8 +123,8 @@ png.on('parsed', function() {
   var characterVectors = [];
   for(i in characters) {
     var character = characters[i];
-    var kernelX = Math.ceil((character.endX - character.startX) / 5);
-    var kernelY = Math.ceil((character.endY - character.startY) / 5);
+    var kernelX = Math.round((character.endX - character.startX) / 5);
+    var kernelY = Math.round((character.endY - character.startY) / 5);
     var vectors = [];
     vectors[25] = 0;
     vectors[26] = 0;
@@ -152,10 +152,13 @@ png.on('parsed', function() {
         var kernelRatio = kernelTotal / (kernelX*kernelY);
         var index = Math.floor((y-character.startY)/kernelY) * 5 + Math.floor((x-character.startX)/kernelX);
         vectors[index] = kernelRatio;
+        //console.log(kernelRatio);
       }
     }
+    //console.log(vectors);
     characterVectors.push(vectors);
   }
+  console.log(characterVectors);
 
   // Draw boxes around characters
   for(i in characters) {
@@ -175,16 +178,33 @@ png.on('parsed', function() {
   }
 
   // Compare data or add new learned data to db
-  if(process.argv[4]) {
-    var realText = process.argv[4];
+  if(process.argv[5]) {
+    var realText = process.argv[5];
     for(i in characterVectors) {
       if(realText[i]) {
-        var doc = {
-          character: realText[i],
-          vectors: vectors
+        var charIndex = getCharIndex(realText[i]);
+        if(charIndex == -1) {
+          var doc = {
+            character: realText[i],
+            fonts: [
+              {
+                name: process.argv[4],
+                vectors: characterVectors[i]
+              }
+            ]
+          }
+
+          console.log('Adding new character:', doc);
+          mongo.insertDocument('Characters', doc);
+        } else {
+          characterData[charIndex].fonts.push({
+            name: process.argv[4],
+            vectors: characterVectors[i]
+          });
+
+          console.log('Adding font', process.argv[4], 'to', realText[i]);
+          mongo.updateDocument('Characters', { character: realText[i] }, characterData[charIndex]);
         }
-        console.log('Adding new character:', doc);
-        mongo.insertDocument('Characters', doc);
       }
     }
   } else {
@@ -193,12 +213,13 @@ png.on('parsed', function() {
       var differences = [];
       for(index in characterData) {
         var doc = characterData[index];
-        console.log('comparing vector:', doc.character);
-        for(v in doc.vectors) {
-          console.log(doc.vectors[v], characterVectors[i][v]);
-          var diff = Math.pow(doc.vectors[v]-characterVectors[i][v], 2);
-          console.log('vector #', v, diff);
-          differences[index] = differences[index] + diff || diff;
+        for(fontIndex in doc.fonts) {
+          for(v in doc.fonts[fontIndex].vectors) {
+            //console.log(doc.vectors[v], characterVectors[i][v]);
+            var diff = Math.pow(doc.fonts[fontIndex].vectors[v]-characterVectors[i][v], 2);
+            //console.log('vector #', v, diff);
+            differences[index] = differences[index] + diff || diff;
+          }
         }
       }
       //console.log(differences);
@@ -220,4 +241,11 @@ function setColor(x, y, r, g, b) {
   png.data[index] = r;
   png.data[index+1] = g;
   png.data[index+2] = b;
+}
+
+function getCharIndex(character) {
+  for(i in characterData) {
+    if(characterData[i].character == character) return i;
+  }
+  return -1;
 }
